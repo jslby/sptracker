@@ -1,5 +1,96 @@
 import { useState, useEffect, useRef } from "react";
 
+// ─── i18n ─────────────────────────────────────────────────────────
+// Change any string here to translate the entire UI
+const L = {
+  appName:            "Workout Tracker",
+  // Nav
+  navTimer:           "Timer",
+  navPrograms:        "Programs",
+  navExercises:       "Exercises",
+  navLight:           "Light",
+  navDark:            "Dark",
+  // Timer screen
+  timerHeadline:      "Start a\nworkout",
+  timerSelectProgram: "Select program",
+  timerNoProgramsYet: "No programs yet",
+  timerNoProgramsHint:"Create one in Programs tab",
+  timerExercisesLabel: (n) => `${n} exercise${n !== 1 ? "s" : ""}`,
+  timerStartBtn:      "Start Workout",
+  // Active session
+  sessionExerciseOf:  (cur, total) => `Exercise ${cur} of ${total}`,
+  sessionSetOf:       (cur, total) => `Set ${cur} of ${total}`,
+  sessionMaxLabel:    (n) => `Max: ${n} reps`,
+  sessionRepsDone:    "Reps done",
+  sessionPlan:        (n) => `Plan: ${n}`,
+  sessionDoneBtn:     "Done",
+  sessionSetsLabel:   "Sets",
+  sessionRestBetweenSets: "Rest between sets",
+  sessionRestBetweenEx:   "Rest between exercises",
+  sessionSetLabel:    (cur, total) => `Set ${cur}/${total}`,
+  sessionNextEx:      (name) => `Next: ${name}`,
+  sessionSeconds:     "seconds",
+  sessionAdjust:      "± 30 sec",
+  sessionContinue:    "Continue",
+  sessionSkipRest:    "Skip Rest",
+  // Done screen
+  doneTitle:          "Workout done!",
+  doneSets:           (n) => `${n} sets completed`,
+  doneAutoProgLabel:  "Auto-progression",
+  doneMaxCount:       "Max count:",
+  doneNoChanges:      "No changes this session",
+  doneNoChangesHint:  "Algorithm tracks last 3 workouts",
+  doneBackBtn:        "Back to Home",
+  // Progression reasons
+  progUp2:            "Crushed it 3 workouts in a row! +2 to max",
+  progUp1:            "Hitting the plan consistently! +1 to max",
+  progDown1:          "Struggling to hit the plan. Adjusting max down by 1",
+  // Programs screen
+  programsManage:     "Manage",
+  programsTitle:      "Programs",
+  programsNoExercises:"No exercises",
+  programsNone:       "No programs yet",
+  programsExCount:    (n) => `${n} exercise${n !== 1 ? "s" : ""}`,
+  // Program editor
+  programEditTitle:   "Edit Program",
+  programNewTitle:    "New Program",
+  programNameLabel:   "Program name",
+  programNamePlaceholder: "e.g. Full Body A",
+  programExLabel:     "Exercises",
+  programSets:        "Sets",
+  programSetRest:     "Set rest",
+  programExRest:      "Ex rest",
+  programAddBtn:      "Add",
+  programSaveBtn:     "Save",
+  // Exercises screen
+  exercisesManage:    "Manage",
+  exercisesTitle:     "Exercises",
+  exercisesAll:       "All",
+  exercisesNone:      "No exercises",
+  exercisesMaxLabel:  "max",
+  // Exercise editor
+  exerciseEditTitle:  "Edit Exercise",
+  exerciseNewTitle:   "New Exercise",
+  exerciseNameLabel:  "Name",
+  exerciseNamePlaceholder: "e.g. Pull-ups",
+  exerciseMaxLabel:   "Max count",
+  exerciseCategoryLabel: "Category",
+  exerciseNewCatBtn:  "+ New",
+  exerciseCatPlaceholder: "Category name",
+  exerciseCatOkBtn:   "OK",
+  exerciseSaveBtn:    "Save",
+  // Exercise detail
+  exerciseDetailMaxLabel: "Max count",
+  exerciseDetailRecord: (n) => `Record: ${n} — update your max!`,
+  exerciseDetailProgLabel: "Progression plan",
+  exerciseDetailSetLabel: (n) => `Set ${n}`,
+  exerciseDetailTotal: (n) => `Total: ${n} reps`,
+  exerciseDetailHistory: "History",
+  exerciseDetailHistorySet: (n) => `Set ${n}`,
+  exerciseDetailReps: (done, plan) => `${done} / ${plan} reps`,
+  exerciseEditBtn:    "Edit",
+};
+
 // ─── STORAGE ───────────────────────────────────────────────────────
 const load = (key, fb) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch { return fb; } };
 const save = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
@@ -55,9 +146,9 @@ function calcProgressionAdjustment(exerciseId, history) {
   const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
   const allStrong = scores.every(s => s >= 0.95);
   const manyWeak = scores.filter(s => s < 0.70).length >= 2;
-  if (allStrong && avg >= 1.05) return { delta: 2, reason: "Crushed it 3 workouts in a row! +2 to max" };
-  if (allStrong) return { delta: 1, reason: "Hitting the plan consistently! +1 to max" };
-  if (manyWeak) return { delta: -1, reason: "Struggling to hit the plan. Adjusting max down by 1" };
+  if (allStrong && avg >= 1.05) return { delta: 2, reason: L.progUp2 };
+  if (allStrong) return { delta: 1, reason: L.progUp1 };
+  if (manyWeak) return { delta: -1, reason: L.progDown1 };
   return { delta: 0, reason: null };
 }
 
@@ -147,6 +238,7 @@ export default function App() {
   const [categories, setCategories] = useState(() => load("categories", defaultCategories));
   const [history, setHistory] = useState(() => load("history", []));
   const [restPrefs, setRestPrefs] = useState(() => load("restPrefs", {}));
+  const [safeBottom, setSafeBottom] = useState(0);
 
   useEffect(() => { save("exercises", exercises); }, [exercises]);
   useEffect(() => { save("programs", programs); }, [programs]);
@@ -155,9 +247,25 @@ export default function App() {
   useEffect(() => { save("restPrefs", restPrefs); }, [restPrefs]);
   useEffect(() => { save("darkMode", dark); }, [dark]);
 
+  // Measure real safe area inset — works reliably in iOS PWA
+  useEffect(() => {
+    function measure() {
+      const el = document.createElement("div");
+      el.style.cssText = "position:fixed;bottom:0;left:0;width:1px;height:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden";
+      document.body.appendChild(el);
+      const h = el.offsetHeight;
+      document.body.removeChild(el);
+      setSafeBottom(h > 0 ? h : 0);
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   const d = dark;
   const navBg = d ? "#111114" : "#ffffff";
   const navBorder = d ? T.borderDark : T.border;
+  const NAV_H = 58 + safeBottom;
 
   return (
     <div style={{ fontFamily: "-apple-system, 'Inter', 'Segoe UI', sans-serif", background: d ? T.bgDark : T.bgPage, minHeight: "100vh", color: d ? T.dTextPrimary : T.textPrimary, width: "100%" }}>
@@ -172,14 +280,14 @@ export default function App() {
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:2px}
       `}</style>
 
-      <div style={{ paddingBottom: "calc(68px + env(safe-area-inset-bottom))" }}>
+      <div style={{ paddingBottom: NAV_H }}>
         {tab === "timer" && <TimerScreen d={d} programs={programs} exercises={exercises} setExercises={setExercises} history={history} setHistory={setHistory} restPrefs={restPrefs} setRestPrefs={setRestPrefs} />}
         {tab === "programs" && <ProgramsScreen d={d} programs={programs} setPrograms={setPrograms} exercises={exercises} />}
         {tab === "exercises" && <ExercisesScreen d={d} exercises={exercises} setExercises={setExercises} categories={categories} setCategories={setCategories} history={history} />}
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: navBg, borderTop: `1px solid ${navBorder}`, display: "flex", zIndex: 100, paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {[{ id: "timer", label: "Timer", icon: "timer" }, { id: "programs", label: "Programs", icon: "programs" }, { id: "exercises", label: "Exercises", icon: "exercises" }].map(t => (
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: navBg, borderTop: `1px solid ${navBorder}`, display: "flex", zIndex: 100, paddingBottom: safeBottom }}>
+        {[{ id: "timer", label: L.navTimer, icon: "timer" }, { id: "programs", label: L.navPrograms, icon: "programs" }, { id: "exercises", label: L.navExercises, icon: "exercises" }].map(t => (
           <button key={t.id} className="btn" onClick={() => setTab(t.id)}
             style={{ flex: 1, padding: "10px 0 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", color: tab === t.id ? T.accent : (d ? T.dTextMuted : T.textMuted) }}>
             <Icon name={t.icon} size={21} />
@@ -189,7 +297,7 @@ export default function App() {
         <button className="btn" onClick={() => setDark(v => !v)}
           style={{ width: 56, padding: "10px 0 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", color: d ? T.dTextMuted : T.textMuted, borderLeft: `1px solid ${navBorder}` }}>
           <Icon name={d ? "sun" : "moon"} size={21} />
-          <span style={{ fontSize: 10, fontWeight: 600 }}>{d ? "Light" : "Dark"}</span>
+          <span style={{ fontSize: 10, fontWeight: 600 }}>{d ? L.navLight : L.navDark}</span>
         </button>
       </div>
     </div>
@@ -208,16 +316,16 @@ function TimerScreen({ d, programs, exercises, setExercises, history, setHistory
   return (
     <div className="fu">
       <HeroHeader d={d} gradient={grad}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>Workout Tracker</div>
-        <div style={{ fontSize: 34, fontWeight: 700, color: "#fff", lineHeight: 1.1, letterSpacing: "-0.02em" }}>Start a<br />workout</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6 }}>{L.appName}</div>
+        <div style={{ fontSize: 34, fontWeight: 700, color: "#fff", lineHeight: 1.1, letterSpacing: "-0.02em" }}>{L.timerHeadline.split("\n").map((l,i)=><span key={i}>{l}{i===0&&<br/>}</span>)}</div>
       </HeroHeader>
 
       <div style={{ padding: "20px 16px" }}>
-        <Lbl d={d} style={{ marginBottom: 12 }}>Select program</Lbl>
+        <Lbl d={d} style={{ marginBottom: 12 }}>{L.timerSelectProgram}</Lbl>
         {programs.length === 0 ? (
           <Card d={d} style={{ textAlign: "center", padding: 40 }}>
-            <div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>No programs yet</div>
-            <div style={{ fontSize: 12, marginTop: 6, color: d ? T.dTextMuted : T.textMuted, opacity: 0.6 }}>Create one in Programs tab</div>
+            <div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>{L.timerNoProgramsYet}</div>
+            <div style={{ fontSize: 12, marginTop: 6, color: d ? T.dTextMuted : T.textMuted, opacity: 0.6 }}>{L.timerNoProgramsHint}</div>
           </Card>
         ) : programs.map(p => {
           const sel = selectedId === p.id;
@@ -226,7 +334,7 @@ function TimerScreen({ d, programs, exercises, setExercises, history, setHistory
             <div key={p.id} onClick={() => setSelectedId(sel ? null : p.id)}
               style={{ background: sel ? (d ? "#1e2d4a" : "#eff6ff") : (d ? T.bgDarkCard : T.bgCard), border: `1.5px solid ${sel ? T.accent : (d ? T.borderDark : T.border)}`, borderRadius: 14, padding: "16px 18px", marginBottom: 10, cursor: "pointer", transition: "all 0.15s" }}>
               <div style={{ fontWeight: 600, fontSize: 16, color: sel ? T.accent : (d ? T.dTextPrimary : T.textPrimary) }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 4 }}>{p.exercises.length} exercises · {names}{p.exercises.length > 3 ? "…" : ""}</div>
+              <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 4 }}>{L.timerExercisesLabel(p.exercises.length)} · {names}{p.exercises.length > 3 ? "…" : ""}</div>
             </div>
           );
         })}
@@ -235,7 +343,7 @@ function TimerScreen({ d, programs, exercises, setExercises, history, setHistory
             const prog = programs.find(p => p.id === selectedId);
             if (prog) setSession({ prog, exIdx: 0, setIdx: 0, phase: "work", sets: [] });
           }} style={{ width: "100%", marginTop: 8, padding: "15px", background: T.accent, color: "#fff", fontWeight: 700, fontSize: 16, borderRadius: 14 }}>
-            Start Workout
+            {L.timerStartBtn}
           </button>
         )}
       </div>
@@ -262,12 +370,12 @@ function ActiveSession({ d, session, setSession, exercises, setExercises, histor
           <div style={{ width: 64, height: 64, borderRadius: "50%", background: T.successLight, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", color: T.success }}>
             <Icon name="check" size={28} />
           </div>
-          <div style={{ fontWeight: 700, fontSize: 28, letterSpacing: "-0.02em" }}>Workout done!</div>
-          <div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted, marginTop: 6 }}>{p.name} · {ts} sets completed</div>
+          <div style={{ fontWeight: 700, fontSize: 28, letterSpacing: "-0.02em" }}>{L.doneTitle}</div>
+          <div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted, marginTop: 6 }}>{p.name} · {L.doneSets(ts)}</div>
         </div>
         {changes.length > 0 ? (
           <div style={{ marginBottom: 24 }}>
-            <Lbl d={d} style={{ marginBottom: 12 }}>Auto-progression</Lbl>
+            <Lbl d={d} style={{ marginBottom: 12 }}>{L.doneAutoProgLabel}</Lbl>
             {changes.map((c, i) => (
               <Card d={d} key={i} style={{ marginBottom: 10, borderColor: c.delta > 0 ? "#86efac" : "#fca5a5", background: c.delta > 0 ? (d ? "#0f2318" : T.successLight) : (d ? "#2a0f0f" : T.dangerLight) }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -275,7 +383,7 @@ function ActiveSession({ d, session, setSession, exercises, setExercises, histor
                   <span style={{ fontWeight: 700, fontSize: 18, color: c.delta > 0 ? T.success : T.danger }}>{c.delta > 0 ? "+" : ""}{c.delta}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted }}>Max count:</span>
+                  <span style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted }}>{L.doneMaxCount}</span>
                   <span style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted, textDecoration: "line-through" }}>{c.oldMax}</span>
                   <span style={{ fontSize: 15, fontWeight: 700, color: c.delta > 0 ? T.success : T.danger }}>→ {c.newMax}</span>
                 </div>
@@ -285,12 +393,12 @@ function ActiveSession({ d, session, setSession, exercises, setExercises, histor
           </div>
         ) : (
           <Card d={d} style={{ marginBottom: 24, textAlign: "center" }}>
-            <div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>No changes this session</div>
-            <div style={{ fontSize: 12, marginTop: 6, color: d ? T.dTextMuted : T.textMuted, opacity: 0.6 }}>Algorithm tracks last 3 workouts</div>
+            <div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>{L.doneNoChanges}</div>
+            <div style={{ fontSize: 12, marginTop: 6, color: d ? T.dTextMuted : T.textMuted, opacity: 0.6 }}>{L.doneNoChangesHint}</div>
           </Card>
         )}
         <button className="btn" onClick={() => setSession(null)} style={{ width: "100%", padding: "15px", background: T.accent, color: "#fff", fontWeight: 700, fontSize: 16, borderRadius: 14 }}>
-          Back to Home
+          {L.doneBackBtn}
         </button>
       </div>
     );
@@ -376,32 +484,32 @@ function ActiveSession({ d, session, setSession, exercises, setExercises, histor
             </button>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{prog.name}</div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2 }}>Exercise {exIdx + 1} of {prog.exercises.length}</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2 }}>{L.sessionExerciseOf(exIdx + 1, prog.exercises.length)}</div>
             </div>
           </div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Set {setIdx + 1} of {totalSets}</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{L.sessionSetOf(setIdx + 1, totalSets)}</div>
           <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em", lineHeight: 1.1 }}>{exercise?.name || "?"}</div>
-          {exercise?.max > 0 && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 5 }}>Max: {exercise.max} reps</div>}
+          {exercise?.max > 0 && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 5 }}>{L.sessionMaxLabel(exercise.max)}</div>}
         </HeroHeader>
 
         <div style={{ padding: "28px 16px" }}>
           <div style={{ textAlign: "center", marginBottom: 28 }}>
-            <Lbl d={d} style={{ marginBottom: 16, textAlign: "center" }}>Reps done</Lbl>
+            <Lbl d={d} style={{ marginBottom: 16, textAlign: "center" }}>{L.sessionRepsDone}</Lbl>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 28 }}>
               <RBtn d={d} onClick={() => setReps(v => Math.max(0, v - 1))} size={52}><Icon name="minus" size={20} /></RBtn>
               <div>
                 <div style={{ fontSize: 88, fontWeight: 700, lineHeight: 1, letterSpacing: "-0.04em", color: reps > plannedReps ? T.success : reps < plannedReps ? T.danger : T.accent }}>{reps}</div>
-                <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 2 }}>Plan: {plannedReps}</div>
+                <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 2 }}>{L.sessionPlan(plannedReps)}</div>
               </div>
               <RBtn d={d} onClick={() => setReps(v => v + 1)} size={52}><Icon name="plus" size={20} /></RBtn>
             </div>
           </div>
 
           <button className="btn" onClick={handleDone} style={{ width: "100%", padding: "15px", background: T.accent, color: "#fff", fontWeight: 700, fontSize: 17, borderRadius: 14, marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <Icon name="check" size={20} /> Done
+            <Icon name="check" size={20} /> {L.sessionDoneBtn}
           </button>
 
-          <Lbl d={d} style={{ marginBottom: 10 }}>Sets</Lbl>
+          <Lbl d={d} style={{ marginBottom: 10 }}>{L.sessionSetsLabel}</Lbl>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {Array.from({ length: totalSets }, (_, i) => {
               const done = i < setIdx; const cur = i === setIdx;
@@ -430,10 +538,10 @@ function ActiveSession({ d, session, setSession, exercises, setExercises, histor
     <div style={{ background: d ? T.bgDark : T.bgPage, minHeight: "100vh" }}>
       <HeroHeader d={d} gradient={restGrad}>
         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
-          {isRestSet ? "Rest between sets" : "Rest between exercises"}
+          {isRestSet ? L.sessionRestBetweenSets : L.sessionRestBetweenEx}
         </div>
         <div style={{ fontSize: 24, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>
-          {isRestSet ? `${exercise?.name || "?"} · Set ${setIdx + 1}/${totalSets}` : `Next: ${nextEx?.name || "?"}`}
+          {isRestSet ? `${exercise?.name || "?"} · ${L.sessionSetLabel(setIdx + 1, totalSets)}` : L.sessionNextEx(nextEx?.name || "?")}
         </div>
       </HeroHeader>
 
@@ -449,19 +557,19 @@ function ActiveSession({ d, session, setSession, exercises, setExercises, histor
             <div style={{ fontSize: 58, fontWeight: 700, letterSpacing: "-0.04em", color: timerVal <= 3 ? T.danger : (d ? T.dTextPrimary : T.textPrimary), transition: "color 0.3s", lineHeight: 1 }}>
               {mins > 0 ? `${mins}:${String(secs).padStart(2, "0")}` : secs}
             </div>
-            <div style={{ fontSize: 11, color: d ? T.dTextMuted : T.textMuted, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 4 }}>seconds</div>
+            <div style={{ fontSize: 11, color: d ? T.dTextMuted : T.textMuted, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginTop: 4 }}>{L.sessionSeconds}</div>
           </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 28 }}>
           <RBtn d={d} onClick={() => { const nv = Math.max(0, timerVal - 30); setTimerVal(nv); saveRest(isRestSet ? restKey + "_set" : restKey + "_ex", nv); }}><Icon name="minus" size={16} /></RBtn>
-          <span style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, fontWeight: 500 }}>± 30 sec</span>
+          <span style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, fontWeight: 500 }}>{L.sessionAdjust}</span>
           <RBtn d={d} onClick={() => { const nv = timerVal + 30; setTimerVal(nv); saveRest(isRestSet ? restKey + "_set" : restKey + "_ex", nv); }}><Icon name="plus" size={16} /></RBtn>
         </div>
 
         <button className="btn" onClick={handleRestDone}
           style={{ width: "100%", padding: "15px", background: timerVal === 0 ? T.accent : (d ? T.bgDarkCard : T.bgCard), border: timerVal === 0 ? "none" : `1px solid ${d ? T.borderDark : T.border}`, color: timerVal === 0 ? "#fff" : (d ? T.dTextPrimary : T.textPrimary), fontWeight: 700, fontSize: 16, borderRadius: 14, transition: "all 0.25s" }}>
-          {timerVal === 0 ? "Continue" : "Skip Rest"}
+          {timerVal === 0 ? L.sessionContinue : L.sessionSkipRest}
         </button>
       </div>
     </div>
@@ -487,8 +595,8 @@ function ProgramsScreen({ d, programs, setPrograms, exercises }) {
       <HeroHeader d={d} gradient={grad}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Manage</div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>Programs</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{L.programsManage}</div>
+            <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>{L.programsTitle}</div>
           </div>
           <button className="btn" onClick={() => setCreating(true)} style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="plus" size={20} />
@@ -497,7 +605,7 @@ function ProgramsScreen({ d, programs, setPrograms, exercises }) {
       </HeroHeader>
 
       <div style={{ padding: "16px 16px" }}>
-        {programs.length === 0 && <Card d={d} style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>No programs yet</div></Card>}
+        {programs.length === 0 && <Card d={d} style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>{L.programsNone}</div></Card>}
         {programs.map(p => {
           const names = p.exercises.map(pe => exercises.find(e => e.id === pe.exerciseId)?.name || "?").join(" → ");
           return (
@@ -505,8 +613,8 @@ function ProgramsScreen({ d, programs, setPrograms, exercises }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                   <div style={{ fontWeight: 600, fontSize: 16, color: d ? T.dTextPrimary : T.textPrimary }}>{p.name}</div>
-                  <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{names || "No exercises"}</div>
-                  <div style={{ fontSize: 11, color: T.accent, marginTop: 6, fontWeight: 600 }}>{p.exercises.length} exercises</div>
+                  <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{names || L.programsNoExercises}</div>
+                  <div style={{ fontSize: 11, color: T.accent, marginTop: 6, fontWeight: 600 }}>{L.programsExCount(p.exercises.length)}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn" onClick={() => setEditing(p)} style={{ width: 34, height: 34, borderRadius: 9, background: d ? T.bgDarkCardAlt : T.bgCardAlt, border: `1px solid ${d ? T.borderDark : T.border}`, color: T.accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="edit" size={14} /></button>
@@ -532,11 +640,11 @@ function ProgramEditor({ d, program, exercises, onSave, onCancel }) {
     <div style={{ background: d ? T.bgDark : T.bgPage, minHeight: "100vh", padding: "24px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <RBtn d={d} onClick={onCancel}><Icon name="back" size={20} /></RBtn>
-        <div style={{ fontWeight: 700, fontSize: 20, color: d ? T.dTextPrimary : T.textPrimary }}>{program ? "Edit Program" : "New Program"}</div>
+        <div style={{ fontWeight: 700, fontSize: 20, color: d ? T.dTextPrimary : T.textPrimary }}>{program ? L.programEditTitle : L.programNewTitle}</div>
       </div>
-      <Lbl d={d} style={{ marginBottom: 6 }}>Program name</Lbl>
-      <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Full Body A" style={{ ...inp, marginBottom: 20 }} />
-      <Lbl d={d} style={{ marginBottom: 10 }}>Exercises</Lbl>
+      <Lbl d={d} style={{ marginBottom: 6 }}>{L.programNameLabel}</Lbl>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder={L.programNamePlaceholder} style={{ ...inp, marginBottom: 20 }} />
+      <Lbl d={d} style={{ marginBottom: 10 }}>{L.programExLabel}</Lbl>
       {items.map((item, i) => {
         const ex = exercises.find(e => e.id === item.exerciseId);
         return (
@@ -546,11 +654,11 @@ function ProgramEditor({ d, program, exercises, onSave, onCancel }) {
               <button className="btn" onClick={() => setItems(p => p.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: T.danger, padding: 4 }}><Icon name="trash" size={16} /></button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              {[["sets", "Sets"], ["restBetweenSets", "Set rest"], ["restAfterExercise", "Ex rest"]].map(([f, label]) => (
+              {[[L.programSets, "sets"], [L.programSetRest, "restBetweenSets"], [L.programExRest, "restAfterExercise"]].map(([label, f]) => (
                 <div key={f}>
                   <div style={{ fontSize: 10, color: d ? T.dTextMuted : T.textMuted, fontWeight: 600, marginBottom: 4 }}>{label}</div>
                   <input type="number" value={item[f]} onChange={e => upd(i, f, parseInt(e.target.value) || 0)}
-                    style={{ width: "100%", background: d ? T.bgDarkCardAlt : T.bgCardAlt, border: `1px solid ${d ? T.borderDark : T.border}`, borderRadius: 8, padding: "7px 8px", color: d ? T.dTextPrimary : T.textPrimary, fontSize: 14, textAlign: "center", outline: "none" }} />
+                    style={{ width: "100%", background: d ? T.bgDarkCardAlt : T.bgCardAlt, border: `1px solid ${d ? T.borderDark : T.border}`, borderRadius: 8, padding: "7px 8px", color: d ? T.dTextPrimary : T.textPrimary, fontSize: 16, textAlign: "center", outline: "none" }} />
                 </div>
               ))}
             </div>
@@ -563,12 +671,12 @@ function ProgramEditor({ d, program, exercises, onSave, onCancel }) {
         </select>
         <button className="btn" onClick={() => selEx && setItems(p => [...p, { exerciseId: selEx, sets: 5, restBetweenSets: 90, restAfterExercise: 120 }])}
           style={{ padding: "11px 16px", background: d ? T.bgDarkCard : T.bgCard, border: `1px solid ${d ? T.borderDark : T.border}`, borderRadius: 10, color: T.accent, fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-          <Icon name="plus" size={16} /> Add
+          <Icon name="plus" size={16} /> {L.programAddBtn}
         </button>
       </div>
       <button className="btn" onClick={() => name && onSave({ ...(program || {}), name, exercises: items })}
         disabled={!name} style={{ width: "100%", padding: "15px", background: name ? T.accent : (d ? T.bgDarkCard : T.bgCardAlt), color: name ? "#fff" : (d ? T.dTextMuted : T.textMuted), fontWeight: 700, fontSize: 16, borderRadius: 14 }}>
-        Save
+        {L.programSaveBtn}
       </button>
     </div>
   );
@@ -578,7 +686,7 @@ function ProgramEditor({ d, program, exercises, onSave, onCancel }) {
 function ExercisesScreen({ d, exercises, setExercises, categories, setCategories, history }) {
   const [view, setView] = useState("list");
   const [sel, setSel] = useState(null);
-  const [filterCat, setFilterCat] = useState("All");
+  const [filterCat, setFilterCat] = useState(() => L.exercisesAll);
 
   if (view === "edit") return (
     <ExerciseEditor d={d} exercise={sel} categories={categories} setCategories={setCategories} exercises={exercises}
@@ -594,8 +702,8 @@ function ExercisesScreen({ d, exercises, setExercises, categories, setCategories
     />
   );
 
-  const allCats = ["All", ...[...new Set(exercises.map(e => e.category))]];
-  const filtered = filterCat === "All" ? exercises : exercises.filter(e => e.category === filterCat);
+  const allCats = [L.exercisesAll, ...[...new Set(exercises.map(e => e.category))]];
+  const filtered = filterCat === L.exercisesAll ? exercises : exercises.filter(e => e.category === filterCat);
   const grad = d ? "linear-gradient(160deg,#1a1228 0%,#151518 58%)" : "linear-gradient(160deg,#4c1d95 0%,#7c3aed 48%,#f5f4f0 100%)";
 
   return (
@@ -603,8 +711,8 @@ function ExercisesScreen({ d, exercises, setExercises, categories, setCategories
       <HeroHeader d={d} gradient={grad}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 14 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Manage</div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>Exercises</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{L.exercisesManage}</div>
+            <div style={{ fontSize: 30, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>{L.exercisesTitle}</div>
           </div>
           <button className="btn" onClick={() => { setSel(null); setView("edit"); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,0.2)", border: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Icon name="plus" size={20} />
@@ -630,11 +738,11 @@ function ExercisesScreen({ d, exercises, setExercises, categories, setCategories
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 28, fontWeight: 700, color: T.accent, lineHeight: 1 }}>{ex.max || "–"}</div>
-              <div style={{ fontSize: 10, color: d ? T.dTextMuted : T.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>max</div>
+              <div style={{ fontSize: 10, color: d ? T.dTextMuted : T.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{L.exercisesMaxLabel}</div>
             </div>
           </div>
         ))}
-        {filtered.length === 0 && <Card d={d} style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>No exercises</div></Card>}
+        {filtered.length === 0 && <Card d={d} style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>{L.exercisesNone}</div></Card>}
       </div>
     </div>
   );
@@ -663,17 +771,17 @@ function ExerciseEditor({ d, exercise, categories, setCategories, exercises, onS
     <div style={{ background: d ? T.bgDark : T.bgPage, minHeight: "100vh", padding: "24px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <RBtn d={d} onClick={onCancel}><Icon name="back" size={20} /></RBtn>
-        <div style={{ fontWeight: 700, fontSize: 20, color: d ? T.dTextPrimary : T.textPrimary }}>{exercise ? "Edit Exercise" : "New Exercise"}</div>
+        <div style={{ fontWeight: 700, fontSize: 20, color: d ? T.dTextPrimary : T.textPrimary }}>{exercise ? L.exerciseEditTitle : L.exerciseNewTitle}</div>
       </div>
-      <Lbl d={d} style={{ marginBottom: 6 }}>Name</Lbl>
-      <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Pull-ups" style={{ ...inp, marginBottom: 20 }} />
-      <Lbl d={d} style={{ marginBottom: 10 }}>Max count</Lbl>
+      <Lbl d={d} style={{ marginBottom: 6 }}>{L.exerciseNameLabel}</Lbl>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder={L.exerciseNamePlaceholder} style={{ ...inp, marginBottom: 20 }} />
+      <Lbl d={d} style={{ marginBottom: 10 }}>{L.exerciseMaxLabel}</Lbl>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
         <RBtn d={d} onClick={() => setMax(v => Math.max(0, v - 1))} size={48}><Icon name="minus" size={18} /></RBtn>
         <div style={{ flex: 1, textAlign: "center", fontSize: 56, fontWeight: 700, color: T.accent, letterSpacing: "-0.04em" }}>{max}</div>
         <RBtn d={d} onClick={() => setMax(v => v + 1)} size={48}><Icon name="plus" size={18} /></RBtn>
       </div>
-      <Lbl d={d} style={{ marginBottom: 10 }}>Category</Lbl>
+      <Lbl d={d} style={{ marginBottom: 10 }}>{L.exerciseCategoryLabel}</Lbl>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
         {availableCats.map(cat => (
           <button key={cat} className="btn" onClick={() => setCategory(cat)}
@@ -683,19 +791,19 @@ function ExerciseEditor({ d, exercise, categories, setCategories, exercises, onS
         ))}
         <button className="btn" onClick={() => setAddingCat(v => !v)}
           style={{ padding: "7px 16px", borderRadius: 20, background: "transparent", border: `1px dashed ${d ? T.borderDark : T.border}`, color: d ? T.dTextMuted : T.textMuted, fontSize: 13 }}>
-          + New
+          {L.exerciseNewCatBtn}
         </button>
       </div>
       {addingCat && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Category name" style={{ ...inp, flex: 1 }} />
+          <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder={L.exerciseCatPlaceholder} style={{ ...inp, flex: 1 }} />
           <button className="btn" onClick={() => { if (newCat.trim()) { setCategories(cs => [...cs, newCat.trim()]); setCategory(newCat.trim()); setNewCat(""); setAddingCat(false); } }}
-            style={{ padding: "11px 16px", background: T.accent, color: "#fff", borderRadius: 10, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>OK</button>
+            style={{ padding: "11px 16px", background: T.accent, color: "#fff", borderRadius: 10, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>{L.exerciseCatOkBtn}</button>
         </div>
       )}
       <button className="btn" onClick={() => name && onSave({ ...(exercise || {}), name, category, max })}
         disabled={!name} style={{ width: "100%", padding: "15px", marginTop: 8, background: name ? T.accent : (d ? T.bgDarkCard : T.bgCardAlt), color: name ? "#fff" : (d ? T.dTextMuted : T.textMuted), fontWeight: 700, fontSize: 16, borderRadius: 14 }}>
-        Save
+        {L.exerciseSaveBtn}
       </button>
     </div>
   );
@@ -715,7 +823,7 @@ function ExerciseDetail({ d, exercise, history, onEdit, onBack, onUpdateMax }) {
             <Icon name="back" size={18} />
           </button>
           <button className="btn" onClick={onEdit} style={{ padding: "8px 16px", background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 10, color: "#fff", fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon name="edit" size={14} /> Edit
+            <Icon name="edit" size={14} /> {L.exerciseEditBtn}
           </button>
         </div>
         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{exercise.category}</div>
@@ -724,7 +832,7 @@ function ExerciseDetail({ d, exercise, history, onEdit, onBack, onUpdateMax }) {
 
       <div style={{ padding: "20px 16px" }}>
         <Card d={d} style={{ marginBottom: 14 }}>
-          <Lbl d={d} style={{ marginBottom: 14 }}>Max count</Lbl>
+          <Lbl d={d} style={{ marginBottom: 14 }}>{L.exerciseDetailMaxLabel}</Lbl>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <RBtn d={d} onClick={() => onUpdateMax(Math.max(0, (exercise.max || 0) - 1))} size={48}><Icon name="minus" size={18} /></RBtn>
             <div style={{ flex: 1, textAlign: "center", fontSize: 68, fontWeight: 700, color: T.accent, letterSpacing: "-0.04em", lineHeight: 1 }}>{exercise.max || 0}</div>
@@ -732,34 +840,34 @@ function ExerciseDetail({ d, exercise, history, onEdit, onBack, onUpdateMax }) {
           </div>
           {bestRecent && bestRecent > exercise.max && (
             <div style={{ marginTop: 14, fontSize: 13, color: T.success, textAlign: "center", fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <Icon name="fire" size={14} /> Record: {bestRecent} — update your max!
+              <Icon name="fire" size={14} /> {L.exerciseDetailRecord(bestRecent)}
             </div>
           )}
         </Card>
 
         {exercise.max > 0 && (
           <Card d={d} style={{ marginBottom: 14 }}>
-            <Lbl d={d} style={{ marginBottom: 14 }}>Progression plan</Lbl>
+            <Lbl d={d} style={{ marginBottom: 14 }}>{L.exerciseDetailProgLabel}</Lbl>
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
               {sets.map((s, i) => (
                 <div key={i} style={{ textAlign: "center" }}>
                   <div style={{ width: 48, height: 48, borderRadius: 10, background: d ? T.bgDarkCardAlt : T.accentLight, border: `1px solid ${d ? T.borderDark : "#bfdbfe"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: T.accent }}>{s.reps}</div>
-                  <div style={{ fontSize: 10, color: d ? T.dTextMuted : T.textMuted, marginTop: 5, fontWeight: 600 }}>Set {i + 1}</div>
+                  <div style={{ fontSize: 10, color: d ? T.dTextMuted : T.textMuted, marginTop: 5, fontWeight: 600 }}>{L.exerciseDetailSetLabel(i + 1)}</div>
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 14, textAlign: "center" }}>Total: {sets.reduce((a, s) => a + s.reps, 0)} reps</div>
+            <div style={{ fontSize: 12, color: d ? T.dTextMuted : T.textMuted, marginTop: 14, textAlign: "center" }}>{L.exerciseDetailTotal(sets.reduce((a, s) => a + s.reps, 0))}</div>
           </Card>
         )}
 
         {exHistory.length > 0 && (
           <Card d={d}>
-            <Lbl d={d} style={{ marginBottom: 14 }}>History</Lbl>
+            <Lbl d={d} style={{ marginBottom: 14 }}>{L.exerciseDetailHistory}</Lbl>
             {exHistory.slice(0, 10).map((s, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < Math.min(exHistory.length, 10) - 1 ? `1px solid ${d ? T.borderDark : T.border}` : "none" }}>
-                <span style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>Set {s.setIdx + 1}</span>
+                <span style={{ fontSize: 13, color: d ? T.dTextMuted : T.textMuted }}>{L.exerciseDetailHistorySet(s.setIdx + 1)}</span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: s.reps > s.planned ? T.success : s.reps < s.planned ? T.danger : (d ? T.dTextPrimary : T.textPrimary) }}>
-                  {s.reps} / {s.planned} reps
+                  {L.exerciseDetailReps(s.reps, s.planned)}
                 </span>
               </div>
             ))}
