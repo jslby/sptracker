@@ -164,7 +164,7 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-        input,select,textarea{font-family:inherit}
+        input,select,textarea{font-family:inherit;font-size:16px!important}
         .btn{border:none;cursor:pointer;font-family:inherit;transition:transform 0.1s,opacity 0.1s}
         .btn:active{transform:scale(0.93);opacity:0.82}
         @keyframes fu{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
@@ -172,13 +172,13 @@ export default function App() {
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:2px}
       `}</style>
 
-      <div style={{ paddingBottom: 68 }}>
+      <div style={{ paddingBottom: "calc(68px + env(safe-area-inset-bottom))" }}>
         {tab === "timer" && <TimerScreen d={d} programs={programs} exercises={exercises} setExercises={setExercises} history={history} setHistory={setHistory} restPrefs={restPrefs} setRestPrefs={setRestPrefs} />}
         {tab === "programs" && <ProgramsScreen d={d} programs={programs} setPrograms={setPrograms} exercises={exercises} />}
         {tab === "exercises" && <ExercisesScreen d={d} exercises={exercises} setExercises={setExercises} categories={categories} setCategories={setCategories} history={history} />}
       </div>
 
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: navBg, borderTop: `1px solid ${navBorder}`, display: "flex", zIndex: 100 }}>
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: navBg, borderTop: `1px solid ${navBorder}`, display: "flex", zIndex: 100, paddingBottom: "env(safe-area-inset-bottom)" }}>
         {[{ id: "timer", label: "Timer", icon: "timer" }, { id: "programs", label: "Programs", icon: "programs" }, { id: "exercises", label: "Exercises", icon: "exercises" }].map(t => (
           <button key={t.id} className="btn" onClick={() => setTab(t.id)}
             style={{ flex: 1, padding: "10px 0 8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", color: tab === t.id ? T.accent : (d ? T.dTextMuted : T.textMuted) }}>
@@ -581,7 +581,7 @@ function ExercisesScreen({ d, exercises, setExercises, categories, setCategories
   const [filterCat, setFilterCat] = useState("All");
 
   if (view === "edit") return (
-    <ExerciseEditor d={d} exercise={sel} categories={categories} setCategories={setCategories}
+    <ExerciseEditor d={d} exercise={sel} categories={categories} setCategories={setCategories} exercises={exercises}
       onSave={ex => { if (sel) setExercises(es => es.map(e => e.id === ex.id ? ex : e)); else setExercises(es => [...es, { ...ex, id: "e" + Date.now() }]); setView("list"); setSel(null); }}
       onCancel={() => { setView("list"); setSel(null); }}
     />
@@ -594,7 +594,7 @@ function ExercisesScreen({ d, exercises, setExercises, categories, setCategories
     />
   );
 
-  const allCats = ["All", ...categories];
+  const allCats = ["All", ...[...new Set(exercises.map(e => e.category))]];
   const filtered = filterCat === "All" ? exercises : exercises.filter(e => e.category === filterCat);
   const grad = d ? "linear-gradient(160deg,#1a1228 0%,#151518 58%)" : "linear-gradient(160deg,#4c1d95 0%,#7c3aed 48%,#f5f4f0 100%)";
 
@@ -640,13 +640,24 @@ function ExercisesScreen({ d, exercises, setExercises, categories, setCategories
   );
 }
 
-function ExerciseEditor({ d, exercise, categories, setCategories, onSave, onCancel }) {
+function ExerciseEditor({ d, exercise, categories, setCategories, exercises, onSave, onCancel }) {
+  // Only show categories that have at least one exercise (excluding the current one being edited)
+  const usedCats = [...new Set(
+    (exercises || [])
+      .filter(e => !exercise || e.id !== exercise.id)
+      .map(e => e.category)
+  )];
+  // If editing, always include the current exercise's own category
+  const availableCats = exercise?.category && !usedCats.includes(exercise.category)
+    ? [...usedCats, exercise.category]
+    : usedCats;
+
   const [name, setName] = useState(exercise?.name || "");
-  const [category, setCategory] = useState(exercise?.category || categories[0] || "");
+  const [category, setCategory] = useState(exercise?.category || availableCats[0] || "");
   const [max, setMax] = useState(exercise?.max || 0);
   const [newCat, setNewCat] = useState("");
   const [addingCat, setAddingCat] = useState(false);
-  const inp = { width: "100%", background: d ? T.bgDarkCard : T.bgCard, border: `1px solid ${d ? T.borderDark : T.border}`, borderRadius: 10, padding: "11px 14px", color: d ? T.dTextPrimary : T.textPrimary, fontSize: 14, outline: "none" };
+  const inp = { width: "100%", background: d ? T.bgDarkCard : T.bgCard, border: `1px solid ${d ? T.borderDark : T.border}`, borderRadius: 10, padding: "11px 14px", color: d ? T.dTextPrimary : T.textPrimary, fontSize: 16, outline: "none" };
 
   return (
     <div style={{ background: d ? T.bgDark : T.bgPage, minHeight: "100vh", padding: "24px 16px" }}>
@@ -664,7 +675,7 @@ function ExerciseEditor({ d, exercise, categories, setCategories, onSave, onCanc
       </div>
       <Lbl d={d} style={{ marginBottom: 10 }}>Category</Lbl>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-        {categories.map(cat => (
+        {availableCats.map(cat => (
           <button key={cat} className="btn" onClick={() => setCategory(cat)}
             style={{ padding: "7px 16px", borderRadius: 20, background: category === cat ? T.accent : (d ? T.bgDarkCard : T.bgCardAlt), border: `1px solid ${category === cat ? T.accent : (d ? T.borderDark : T.border)}`, color: category === cat ? "#fff" : (d ? T.dTextSecondary : T.textSecondary), fontSize: 13, fontWeight: 500 }}>
             {cat}
@@ -679,7 +690,7 @@ function ExerciseEditor({ d, exercise, categories, setCategories, onSave, onCanc
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <input value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Category name" style={{ ...inp, flex: 1 }} />
           <button className="btn" onClick={() => { if (newCat.trim()) { setCategories(cs => [...cs, newCat.trim()]); setCategory(newCat.trim()); setNewCat(""); setAddingCat(false); } }}
-            style={{ padding: "11px 16px", background: T.accent, color: "#fff", borderRadius: 10, fontWeight: 600, fontSize: 14 }}>OK</button>
+            style={{ padding: "11px 16px", background: T.accent, color: "#fff", borderRadius: 10, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>OK</button>
         </div>
       )}
       <button className="btn" onClick={() => name && onSave({ ...(exercise || {}), name, category, max })}
